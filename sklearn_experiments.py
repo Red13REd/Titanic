@@ -244,8 +244,27 @@ def evaluate_model(
         config=config,
     )
 
+    return evaluate_cv(
+        estimator=pipeline,
+        X=X,
+        y=y,
+        model=model,
+        config=config,
+        experiment_name=experiment_name,
+    )
+
+
+def evaluate_cv(
+    estimator,
+    X,
+    y,
+    model,
+    config,
+    experiment_name=None,
+    fit_params=None,
+):
     result = cross_validate(
-        pipeline,
+        estimator,
         X,
         y,
         cv=get_cv(),
@@ -253,6 +272,7 @@ def evaluate_model(
             "accuracy",
             "roc_auc",
         ],
+        params=fit_params,
     )
 
     metrics = {
@@ -273,21 +293,29 @@ def evaluate_model(
     return metrics
 
 
-
-
 def save_experiment(
     name: str,
-    model: BaseEstimator,
-    config: ExperimentConfig,
+    model: BaseEstimator | str,
+    config: dict,
     metrics: dict,
     path: str = "experiments/experiments.csv",
+    model_params: dict | None = None,
 ) -> None:
+    if isinstance(model, str):
+        if model_params is None:
+            raise ValueError("model_params is required when model is a name")
+        model_name = model
+        params = model_params
+    else:
+        model_name = model.__class__.__name__
+        params = model.get_params() if model_params is None else model_params
+
     experiment = {
         "datetime": datetime.now().isoformat(timespec="seconds"),
         "name": name,
-        "model": model.__class__.__name__,
+        "model": model_name,
         "model_params": json.dumps(
-            model.get_params(),
+            params,
             default=str,
         ),
         "config": json.dumps(
@@ -384,9 +412,62 @@ def tune_model(
         cv=get_cv(),
         n_jobs=-1,
         refit="accuracy",
-        verbose=2
+        verbose=0
     )
 
     grid_search.fit(X, y)
 
     return grid_search
+
+
+
+def save_cv_experiment(
+    name: str,
+    cv_results: pd.DataFrame,
+    model_name: str,
+    params: dict,
+    config: dict,
+    metric_columns: dict[str, str],
+    selection_metric: str = "accuracy_mean",
+    higher_is_better: bool = True,
+    iteration_column: str | None = None,
+    iteration_offset: int = 0,
+    iteration_param: str | None = None,
+    cv_method: str = "cv",
+) -> dict:
+    """Save a selected CV row using caller-provided metric and iteration columns."""
+    if selection_metric not in metric_columns:
+        raise ValueError("selection_metric must be present in metric_columns")
+
+    score_column = metric_columns[selection_metric]
+    best_idx = (cv_results[score_column].idxmax() if higher_is_better
+                else cv_results[score_column].idxmin())
+    row = cv_results.loc[best_idx]
+
+    metrics = {
+        metric: row[column]
+        for metric, column in metric_columns.items()
+    }
+
+    experiment_config = {
+        **config,
+        "cv_method": cv_method,
+        "selection_metric": selection_metric,
+    }
+    saved_params = params.copy()
+    if iteration_column is not None:
+        selected_iterations = int(row[iteration_column]) + iteration_offset
+        experiment_config["selected_iterations"] = selected_iterations
+        if iteration_param is not None:
+            experiment_config["cv_max_iterations"] = params.get(iteration_param)
+            saved_params[iteration_param] = selected_iterations
+
+    save_experiment(
+        name=name,
+        model=model_name,
+        config=experiment_config,
+        metrics=metrics,
+        model_params=saved_params,
+    )
+
+    return metrics
