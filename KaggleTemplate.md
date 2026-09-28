@@ -1,123 +1,25 @@
 # Titanic — experiment summary
 
-### To-do
+Основная метрика — **CV accuracy**, дополнительная — **CV ROC-AUC**. В таблице показаны лучшие **пайплайны**: модели использовали разные признаки и обработку. Общие фолды — `StratifiedKFold(5, shuffle=True, random_state=42)`; CatBoost также проверялся на другом разбиении. Подробности — в `modeling.ipynb`.
 
-- CatBoost
-- LightGBM
-- XGBoost
-- После основных моделей: отдельный этап feature engineering для `Cabin`, `Name`, `Ticket` и других признаков.
+| Модель | Признаки и обработка | CV accuracy ± std | Разбиение |
+| --- | --- | ---: | --- |
+| DummyClassifier | Правило частого класса | 0.6162 ± 0.0023 | общие фолды |
+| Logistic Regression | 6 исходных + 4 новых; масштабирование | 0.8159 ± 0.0081 | общие фолды |
+| KNN | 6 исходных + `FamilySize`; масштабирование | 0.8317 ± 0.0086 | общие фолды |
+| Decision Tree | 7 исходных + `SexPclass` | 0.8429 ± 0.0202 | общие фолды |
+| Random Forest | 7 исходных; общая предобработка | **0.8462 ± 0.0211** | общие фолды |
+| LightGBM | 7 исходных; встроенные категории | 0.8429 ± 0.0167 | общие фолды |
+| CatBoost после поиска | 7 исходных; встроенные категории | 0.8328 ± 0.0398 | другие фолды CatBoost |
+| CatBoost + `Title` | 7 исходных + `Title`; встроенные категории | 0.8316 ± 0.0466 | фолды эксперимента с признаками CatBoost |
 
-### Notes
+### Выводы
 
-- Основная метрика: **accuracy**.
-- Дополнительно смотрим **ROC-AUC**.
-- CV: `StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`.
-- GridSearch выбирает модель по `refit="accuracy"`.
-- Scaling важен для KNN; для деревьев и Random Forest не нужен.
+- На общих фолдах лучший результат у пайплайна Random Forest; различия с LightGBM нельзя приписать только алгоритму из-за разной обработки признаков.
+- LightGBM после подбора получил **0.8429 ± 0.0167** против **0.8260 ± 0.0242** у baseline со встроенными категориями. Кривые baseline показывали переобучение при росте числа деревьев.
+- `Title` немного улучшил CatBoost в отдельном сравнении (**0.8238 → 0.8316**). Его результаты на других фолдах не образуют строгий рейтинг с остальными моделями.
+- Максимумы после подбора параметров могут быть оптимистичными.
 
-### Solution
+### Дальше
 
-| № | Approach | CV Accuracy | CV STD | Notes |
-| --- | --- | ---: | ---: | --- |
-| 1 | DummyClassifier | 0.6150 | — | baseline |
-| 2 | LogisticRegression — base features | 0.7924 | 0.0188 | до tuning |
-| 3 | LogisticRegression — base features + tuning | 0.8025 | — | tuning помогает |
-| 4 | LogisticRegression — feature engineering | 0.8159 | 0.0081 | лучший LR |
-| 5 | KNN — baseline | 0.8047 | 0.0225 | default + scaling |
-| 6 | KNN — tuned + feature engineering | 0.8317 | 0.0086 | лучший KNN |
-| 7 | Decision Tree — без ограничений | 0.7879 | 0.0311 | сильное переобучение |
-| 8 | Decision Tree — tuned + `SexPclass` | 0.8429 | 0.0202 | лучший DT |
-| 9 | Random Forest — baseline | 0.8125 | 0.0272 | train ≈ 0.98 |
-| 10 | **Random Forest — tuned** | **0.8462** | — | лучший результат |
-
-### Logistic Regression — итог
-
-Лучший вариант:
-
-- `C=1`
-- L2
-- feature engineering
-- **accuracy = 0.8159**
-
-Tuning базовых признаков дал **0.8025**, feature engineering поднял результат до **0.8159**.
-
-### KNN — итог
-
-Лучшие параметры:
-
-- `n_neighbors=21`
-- `weights="uniform"`
-- `metric="manhattan"`
-
-Scaling + feature selection / engineering:
-
-**0.8047 → 0.8148 → 0.8317**
-
-### Decision Tree — итог
-
-Неограниченное дерево:
-
-- train: **0.9798**
-- CV: **0.7879**
-
-После tuning:
-
-- `criterion="gini"`
-- `max_depth=8`
-- `min_samples_split=10`
-- `min_samples_leaf=1`
-
-Лучший feature experiment: `SexPclass`.
-
-**CV accuracy: 0.8429 ± 0.0202**
-
-### Random Forest — итог
-
-Baseline:
-
-- train: **0.9798**
-- CV: **0.8125 ± 0.0272**
-- ROC-AUC: **0.8717 ± 0.0267**
-
-После tuning:
-
-- `n_estimators=200`
-- `max_depth=None`
-- `max_features=None`
-- `min_samples_leaf=4`
-- `min_samples_split=10`
-- train: **0.8923**
-- CV: **0.8462**
-
-Feature engineering существенного прироста не дал.
-
-### Processed ideas
-
-#### Good
-
-- Logistic Regression: `Pclass` → one-hot, `FareLog1p`, `SexPclass`, `AgeSquared`, `IsAlone`
-- KNN: scaling, `n_neighbors=21`, Manhattan distance, `FamilySize`, feature selection
-- Decision Tree: ограничение сложности, `SexPclass`
-- Random Forest: `min_samples_leaf=4`, `min_samples_split=10`
-- Random Forest: 200 деревьев дали стабильный tuned ensemble
-
-#### Neutral
-
-- Logistic Regression: L1 / L2 / ElasticNet не улучшили лучший результат
-- KNN: добавление всех engineered features сразу не помогло
-- Decision Tree: `entropy`, scaling и большинство дополнительных фич не улучшили лучший результат
-- Random Forest: `FamilySize`, `IsAlone`, `SexPclass`, смена encoding не дали заметного прироста
-- Random Forest: `sqrt` / `log2` для `max_features` не обошли `None`
-
-#### Bad
-
-- Logistic Regression: слишком сильная регуляризация ухудшает качество
-- KNN без scaling заметно хуже
-- Decision Tree без ограничений: сильное переобучение
-- Random Forest baseline: train **0.9798** при CV **0.8125**
-
-### Final Ensemble
-
-| Model | CV | Public LB | Private LB |
-| --- | ---: | ---: | ---: |
-|  |  |  |  |
+XGBoost, затем отдельная проверка новых признаков и ансамблей.
