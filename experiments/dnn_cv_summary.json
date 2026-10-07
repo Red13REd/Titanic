@@ -1,0 +1,52 @@
+{
+  "selection_rule": "max mean outer accuracy; ties: min mean loss, then fewer parameters",
+  "winner": "embedding_24_32_16_8",
+  "summary": [
+    {
+      "candidate": "embedding_24_32_16_8",
+      "accuracy_mean": 0.8305128366078716,
+      "accuracy_std": 0.03388388534661815,
+      "loss_mean": 0.42165246411599605,
+      "roc_auc_mean": 0.8675197184069987,
+      "oof_accuracy": 0.8305274971941639,
+      "oof_roc_auc": 0.8646102962323843,
+      "oof_loss": 0.4216166881030543,
+      "parameters_min": 1765,
+      "parameters_max": 1767,
+      "best_epochs": [
+        9,
+        7,
+        45,
+        21,
+        18
+      ]
+    },
+    {
+      "candidate": "one_hot_24",
+      "accuracy_mean": 0.8181532860460738,
+      "accuracy_std": 0.015537570692393034,
+      "loss_mean": 0.423229824295489,
+      "roc_auc_mean": 0.8666955305892164,
+      "oof_accuracy": 0.8181818181818182,
+      "oof_roc_auc": 0.8640244357097966,
+      "oof_loss": 0.4231811058239449,
+      "parameters_min": 337,
+      "parameters_max": 361,
+      "best_epochs": [
+        19,
+        14,
+        19,
+        18,
+        64
+      ]
+    }
+  ],
+  "fold_accuracy_difference_embedding_minus_one_hot": [
+    0.0,
+    0.0,
+    -0.022471910112359494,
+    0.050561797752809,
+    0.0337078651685393
+  ],
+  "limitation": "Candidates were previously selected using this dataset; not an independent final test."
+}

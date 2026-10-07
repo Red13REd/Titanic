@@ -209,6 +209,9 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Generated experiment outputs
+experiments/runs/*
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
@@ -216,3 +219,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+AGENTS.md
+# Local study notes
+/docs/

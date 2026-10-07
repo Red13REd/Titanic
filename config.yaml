@@ -1,0 +1,67 @@
+seed: 42
+
+data:
+  train_path: data/train.csv
+  test_path: data/test.csv
+  target: Survived
+  id_column: PassengerId
+  drop_columns: [PassengerId]
+
+cv:
+  n_splits: 5
+  shuffle: true
+
+model:
+  name: decision_tree
+  params:
+    max_depth: 5
+
+output_dir: experiments/runs/current
+
+dnn:
+  device: cpu  # cpu, cuda (NVIDIA GPU) или auto (CUDA при доступности, иначе CPU)
+  experiment_name: mlp_baseline
+  results_path: experiments/dnn_results.csv
+  features:
+    numeric: [Age, Fare, SibSp, Parch]
+    categorical: [Pclass, Sex, Embarked]
+  split:
+    validation_size: 0.2
+    random_state: 42
+    stratify: true
+  preprocessing:
+    numeric_imputer_strategy: median
+    scale_numeric: true
+    categorical_missing_value: Missing
+    handle_unknown: ignore
+    categorical_encoder: embedding  # Допустимые режимы: one-hot, embedding
+  loader:
+    batch_size: 16
+    train_shuffle: true
+    validation_shuffle: false
+    num_workers: 0
+  model:
+    hidden_layers: [24, 32, 16, 8]
+    activation: ReLU
+    batch_norm: false
+    dropout: 0.15
+    embedding_dim: 2
+  optimizer:
+    name: Adam
+    params:
+      lr: 0.003
+      weight_decay: 0
+  scheduler:
+    name: null
+    params:
+      eta_min: 0.00003
+      T_max: 50
+  training:
+    loss_fn: BCEWithLogitsLoss
+    max_epochs: 200
+    min_epochs: 20
+    patience: 25
+    min_delta: 0.0001
+    verbose: false
+  evaluation:
+    threshold: 0.5
