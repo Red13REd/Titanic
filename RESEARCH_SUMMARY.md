@@ -1,0 +1,73 @@
+### To-do
+
+- Финальный запуск RF через main.
+- Сабмит на Kaggle.
+
+### Notes
+
+- Выбрали RF: 200 деревьев, leaf=4, split=10, max_features=None, max_depth=None.
+- Выбрали EmbeddingMLP \[24,32,16,8\]: dim=2, Dropout=0.15, ReLU, Adam, LR=0.003, batch=16.
+- Подробности: модели, разбиения, DNN, ансамбли.
+
+### Questions
+
+- —
+
+### Solution
+
+| Approach | CV | CV STD | LB | Date |
+| --- | --- | --- | --- | --- |
+| RF \[1\] | 83.54% | 0.83 п.п. | — | — |
+| XGBoost \[1\] | 83.61% | 0.48 п.п. | — | — |
+| LightGBM native \[1\] | 83.43% | 0.61 п.п. | — | — |
+| CatBoost + Title \[1\] | 83.16% | 0.51 п.п. | — | — |
+| Дерево + SexPclass \[1\] | 82.57% | 1.34 п.п. | — | — |
+| KNN + FamilySize \[1\] | 82.30% | 0.65 п.п. | — | — |
+| LR + новые признаки \[1\] | 81.44% | 0.21 п.п. | — | — |
+| MLP one-hot \[24\] \[2\] | 81.82% | 1.55 п.п. | — | — |
+| EmbeddingMLP \[24,32,16,8\] \[2\] | 83.05% | 3.39 п.п. | — | — |
+| Усреднение RF + XGBoost \[1\] | 83.20% | 0.89 п.п. | — | — |
+| Усреднение RF + XGBoost + LR \[1\] | 83.20% | 0.61 п.п. | — | — |
+| Hard voting \[1\] | 83.61% | 0.63 п.п. | — | — |
+| Stacking \[3\] | 83.84% | 2.15 п.п. | — | — |
+
+### Annotations
+
+| № | Annotation |
+| --- | --- |
+| 1 | Accuracy: пять фолдов × seeds разбиения 42/17/123; STD между разбиениями. Seed моделей 42. RF и XGBoost практически равны. |
+| 2 | Внешняя CV: пять фолдов, внутри early stopping; STD по внешним фолдам. |
+| 3 | Stacking: внешние пять фолдов seed 42, внутренние OOF; STD по внешним фолдам. |
+| 4 | Пункты ниже — отдельные контрольные проверки. Настройки выбирались на этих данных; оценки не являются независимым тестом. |
+
+### Final Ensemble
+
+| Model | CV | Public LB | Private LB |
+| --- | --- | --- | --- |
+| Не выбран | — | — | — |
+
+### Processed ideas
+
+#### Good
+
+- LR: FareLog1p, AgeSquared, IsAlone, SexPclass и обработка категорий — 79.24% → 81.59% на seed 42.
+- KNN: FamilySize, one-hot Sex, без Fare + подбор — 80.47% → 83.17% на seed 42.
+- CatBoost: Title — 82.38% → 83.16% в серии catboost.cv с 110 деревьями; Deck и все три признака дали меньший прирост.
+- LightGBM baseline: HasCabin — 82.71% → 83.61%, выигрыш на 4/5 фолдов.
+- DNN: выбранная Embedding-конфигурация — 83.05% против 81.82% one-hot во внешней CV; разброс выше.
+
+#### Neutral
+
+- LR: L1/ElasticNet не улучшили выбранную L2, C=1.
+- RF: FamilySize, IsAlone, SexPclass не дали убедительного прироста.
+- DNN: BatchNorm и косинусовый scheduler не улучшили контроль; AdamW дал тот же результат, что Adam при LR=0.003.
+- Усреднение, Voting и stacking не дали устойчивого преимущества над сильными отдельными моделями; stacking проверяли только на seed 42.
+
+#### Bad
+
+- CatBoost: FamilySize — 82.38% → 82.04% в той же серии catboost.cv.
+- DNN: pos_weight=2 — 83.24% → 78.21% на validation.
+
+#### Some experimental ideas I didn't implemented
+
+- —
