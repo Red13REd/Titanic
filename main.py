@@ -5,24 +5,19 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.model_selection import StratifiedKFold, cross_validate
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, OneHotEncoder
 
 from src.config import create_model, load_config
-
-
-def categorical_values(frame):
-    """Приводит категории к строкам, сохраняя пропуски для заполнения."""
-    values = frame.astype("string").astype(object)
-    return values.where(values.notna(), np.nan)
+from src.preprocessing import prepare_features
+from src.sklearn_experiments import build_experiment
 
 
 def main(config_path="config.yaml"):
-    """Запускает решение из YAML; файлы результатов в output_dir заменяются."""
+    """Читает config_path, оценивает модель на CV и обучает на всём train.
+
+    Возвращает словарь средних метрик и std; submission.csv и metrics.json
+    в output_dir заменяются. Пути данных задаются относительно рабочей папки.
+    """
     config = load_config(config_path)
     data = config["data"]
     cv = StratifiedKFold(
@@ -30,20 +25,14 @@ def main(config_path="config.yaml"):
         random_state=config["seed"] if config["cv"]["shuffle"] else None,
     )
     train = pd.read_csv(data["train_path"])
-    X = train.drop(columns=[data["target"], *data["drop_columns"]])
-    y = train[data["target"]]
     model = create_model(config["model"], config["seed"])
-    categorical = Pipeline([
-        ("strings", FunctionTransformer(categorical_values, feature_names_out="one-to-one")),
-        ("impute", SimpleImputer(strategy="constant", fill_value="Missing", keep_empty_features=True)),
-        ("encode", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-    ])
-    preprocessor = ColumnTransformer([
-        ("numeric", SimpleImputer(strategy="median", keep_empty_features=True),
-         ["Age", "SibSp", "Parch", "Fare"]),
-        ("categorical", categorical, ["Pclass", "Sex", "Embarked"]),
-    ], remainder="drop", verbose_feature_names_out=False).set_output(transform="pandas")
-    pipeline = Pipeline([("preprocessing", preprocessor), ("model", model)])
+    preprocessing_config = config["preprocessing"]
+    X, y, pipeline = build_experiment(
+        df=train.drop(columns=data["drop_columns"]),
+        target=data["target"],
+        model=model,
+        config=preprocessing_config,
+    )
     scores = cross_validate(
         pipeline, X, y, cv=cv, scoring=["accuracy", "roc_auc"], error_score="raise",
     )
@@ -57,7 +46,10 @@ def main(config_path="config.yaml"):
 
     pipeline.fit(X, y)
     test = pd.read_csv(data["test_path"])
-    predictions = pipeline.predict(test.drop(columns=data["drop_columns"]))
+    test_X, _, _, _ = prepare_features(
+        test.drop(columns=data["drop_columns"]), preprocessing_config,
+    )
+    predictions = pipeline.predict(test_X)
     submission = pd.DataFrame({data["id_column"]: test[data["id_column"]], data["target"]: predictions})
 
     output_dir = Path(config["output_dir"])

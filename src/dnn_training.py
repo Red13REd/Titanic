@@ -1,8 +1,10 @@
+"""Обучение и оценка бинарных MLP с one-hot или Embedding-входами."""
+
 import copy
 
 import torch
-from torch import nn
 from sklearn.metrics import roc_auc_score
+from torch import nn
 
 
 def resolve_device(name="cpu"):
@@ -29,7 +31,11 @@ def _check_binary_shapes(logits, targets):
 
 
 def train_one_epoch(model, data_loader, criterion, optimizer):
-    """Переносит батчи на устройство модели и возвращает средний train loss."""
+    """Обновляет веса на размеченном loader; возвращает средний loss.
+
+    Батч: (X, y) или (numeric, categorical, y), метки имеют форму [B, 1].
+    criterion вычисляет средний loss батча; optimizer обновляет параметры.
+    """
     model.train()
     device = next(model.parameters()).device
     criterion.to(device)
@@ -54,7 +60,11 @@ def train_one_epoch(model, data_loader, criterion, optimizer):
 
 
 def evaluate(model, data_loader, criterion, threshold=0.5):
-    """Возвращает loss, accuracy и ROC-AUC за один проход размеченных данных."""
+    """Оценивает размеченный loader без обновления весов.
+
+    Возвращает словарь loss, accuracy и ROC-AUC по всем объектам.
+    threshold задаёт порог вероятности для accuracy; ROC-AUC использует скоры.
+    """
     model.eval()
     device = next(model.parameters()).device
     criterion.to(device)
@@ -81,8 +91,8 @@ def evaluate(model, data_loader, criterion, threshold=0.5):
             all_scores.append(scores.cpu())
             all_labels.append(batch_y.cpu())
 
-    scores = torch.cat(all_scores, dim=0).reshape(-1).cpu().numpy()
-    labels = torch.cat(all_labels, dim=0).reshape(-1).cpu().numpy()
+    scores = torch.cat(all_scores, dim=0).reshape(-1).numpy()
+    labels = torch.cat(all_labels, dim=0).reshape(-1).numpy()
 
     return {
         "loss": loss_sum / samples_seen,
@@ -149,7 +159,7 @@ def train_model(
     train_loss_history = []
     validation_loss_history = []
     validation_accuracy_history = []
-    validation_roc_auc_score = []
+    validation_roc_auc_history = []
     lr_history = []
     best_model = {"model": None, "loss": float("inf"), "epoch": 0}
 
@@ -163,7 +173,7 @@ def train_model(
         train_loss_history.append(train_loss)
         validation_loss_history.append(validation_loss)
         validation_accuracy_history.append(metrics["accuracy"])
-        validation_roc_auc_score.append(metrics["roc_auc"])
+        validation_roc_auc_history.append(metrics["roc_auc"])
 
         if scheduler is not None:
             if not isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingLR):
@@ -182,6 +192,7 @@ def train_model(
             best_model["epoch"] = epoch_number
             best_model["model"] = copy.deepcopy(model.state_dict())
 
+        # Сохраняем любой минимум, но patience сбрасываем лишь при улучшении на min_delta.
         if last_significant_loss - validation_loss >= min_delta:
             last_significant_loss = validation_loss
             epochs_without_improvement = 0
@@ -196,14 +207,18 @@ def train_model(
         train_loss_history,
         validation_loss_history,
         validation_accuracy_history,
-        validation_roc_auc_score,
+        validation_roc_auc_history,
         lr_history,
         best_model,
     )
 
 
 def create_mlp(model_config, in_features):
-    """Собирает полносвязную сеть с одним выходным logit."""
+    """Создаёт MLP из model_config для in_features входов и одного логита.
+
+    Конфиг задаёт hidden_layers, activation, batch_norm и dropout.
+    Sigmoid не добавляется: выход подходит для BCEWithLogitsLoss.
+    """
     layers = []
     previous_size = in_features
 
@@ -216,9 +231,7 @@ def create_mlp(model_config, in_features):
         previous_size = hidden_size
 
     layers.append(nn.Linear(previous_size, 1))
-    model = nn.Sequential(*layers)
-
-    return model
+    return nn.Sequential(*layers)
 
 
 class EmbeddingMLP(nn.Module):
@@ -228,6 +241,11 @@ class EmbeddingMLP(nn.Module):
         self, model_config, numeric_features_count, categorical_cardinalities,
         embedding_dim=2,
     ):
+        """Задаёт число числовых входов, размеры таблиц и векторов категорий.
+
+        categorical_cardinalities содержит число строк каждой таблицы,
+        включая зарезервированные индексы неизвестных и пропущенных значений.
+        """
         super().__init__()
         if not categorical_cardinalities or any(
             not isinstance(size, int) or isinstance(size, bool) or size <= 0
@@ -236,7 +254,7 @@ class EmbeddingMLP(nn.Module):
             raise ValueError("categorical_cardinalities должен содержать положительные целые размеры")
         if not isinstance(embedding_dim, int) or isinstance(embedding_dim, bool) or embedding_dim <= 0:
             raise ValueError("embedding_dim должен быть положительным целым числом")
-        
+
         self.numeric_features_count = numeric_features_count
         in_features = numeric_features_count + len(categorical_cardinalities) * embedding_dim
         self.mlp = create_mlp(model_config, in_features)
@@ -246,18 +264,19 @@ class EmbeddingMLP(nn.Module):
         ])
 
     def forward(self, numeric_features, categorical_indices):
+        """Объединяет числа [B, F] и категории int64 [B, C] в логиты [B, 1]."""
         if categorical_indices.ndim != 2 or categorical_indices.shape[1] != len(self.embeddings):
             raise ValueError("Число категориальных столбцов должно совпадать с числом Embedding-таблиц")
         if numeric_features.ndim != 2 or numeric_features.shape[1] != self.numeric_features_count:
             raise ValueError("Число числовых столбцов не совпадает с настройками модели")
         if numeric_features.shape[0] != categorical_indices.shape[0]:
             raise ValueError("Числовые признаки и категории должны иметь одинаковый размер батча")
-        
-        categorical_list = []
+
+        embedded_features = []
         for index, embedding in enumerate(self.embeddings):
             embedded_feature = embedding(categorical_indices[:, index])
-            categorical_list.append(embedded_feature)
-        categorical_embeddings = torch.cat(categorical_list, dim=-1)
+            embedded_features.append(embedded_feature)
+        categorical_embeddings = torch.cat(embedded_features, dim=-1)
 
         x = torch.cat([numeric_features, categorical_embeddings], dim=-1)
         return self.mlp(x)

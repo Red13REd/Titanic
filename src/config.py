@@ -18,7 +18,7 @@ MODELS = {
 
 
 def load_config(path="config.yaml"):
-    """Читает общий YAML; пути в нём задаются относительно корня проекта."""
+    """Читает YAML из path и возвращает словарь настроек без изменения путей."""
     with Path(path).open(encoding="utf-8") as stream:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict):
@@ -27,7 +27,10 @@ def load_config(path="config.yaml"):
 
 
 def create_model(model_config, seed):
-    """Создаёт классификатор; явно заданный random_state важнее общего seed."""
+    """Возвращает необученный классификатор по model_config[name, params].
+
+    seed задаёт random_state, если он не указан явно; KNN seed не использует.
+    """
     name = model_config["name"]
     if name not in MODELS:
         raise ValueError(f"Неизвестная модель {name!r}; доступны {tuple(MODELS)}")

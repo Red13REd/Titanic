@@ -1,6 +1,6 @@
 """Короткие проверки DNN без записи в основной журнал экспериментов.
 
-Запуск: .venv/Scripts/python.exe -m unittest discover -s tests -v
+Запуск: .venv/Scripts/python.exe -X utf8 -m unittest discover -s tests -v
 """
 
 import copy

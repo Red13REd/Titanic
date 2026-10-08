@@ -11,10 +11,25 @@ cv:
   n_splits: 5
   shuffle: true
 
+preprocessing:
+  features:
+    Age: numeric
+    Fare: numeric
+    Sex: binary
+    Embarked: onehot
+    Pclass: numeric
+    SibSp: numeric
+    Parch: numeric
+  scale_numeric: false
+
 model:
-  name: decision_tree
+  name: random_forest
   params:
-    max_depth: 5
+    n_estimators: 200
+    max_depth: null
+    max_features: null
+    min_samples_leaf: 4
+    min_samples_split: 10
 
 output_dir: experiments/runs/current
 

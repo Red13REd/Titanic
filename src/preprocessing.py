@@ -10,15 +10,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-ProcessingType = Literal[
-    "numeric",
-    "binary",
-    "onehot",
-    "_",
-]
+ProcessingType = Literal["numeric", "binary", "onehot", "_"]
 
 
 class ExperimentConfig(TypedDict):
+    """Типы исходных колонок, флаги признаков Titanic и масштабирование чисел."""
+
     features: dict[str, ProcessingType]
 
     family_size: NotRequired[bool]
@@ -28,6 +25,7 @@ class ExperimentConfig(TypedDict):
     age_squared: NotRequired[bool]
     sex_pclass: NotRequired[bool]
     scale_numeric: NotRequired[bool]
+
 
 base_config: ExperimentConfig = {
     "features": {
@@ -52,7 +50,11 @@ def prepare_features(
     list[str],
     list[str],
 ]:
-    """Выбирает колонки и создаёт признаки Titanic; возвращает X и списки типов."""
+    """Готовит признаки Titanic из df по config, не изменяя исходный DataFrame.
+
+    Возвращает X и три списка колонок: numeric, binary, onehot.
+    Префикс _ или тип _ отключает вход; флаги добавляют производные признаки.
+    """
     if config is None:
         config = base_config
 
@@ -60,19 +62,16 @@ def prepare_features(
     binary_features: list[str] = []
     onehot_features: list[str] = []
 
-    # Выбираем только активные признаки.
     active_features = {
         feature: processing_type
         for feature, processing_type in config["features"].items()
-        if not feature.startswith("_")
-        and processing_type != "_"
+        if not feature.startswith("_") and processing_type != "_"
     }
 
     selected_features = list(active_features.keys())
     required_features = selected_features.copy()
 
-    # Зависимости для feature engineering.
-    # Эти колонки нужны для вычислений, даже если отключены в features.
+    # Исходные колонки нужны для производных признаков даже при отключённом входе.
     dependencies = {
         "family_size": ["SibSp", "Parch"],
         "is_alone": ["SibSp", "Parch"],
@@ -84,31 +83,21 @@ def prepare_features(
 
     for flag, columns in dependencies.items():
         if config.get(flag, False):
-
             for column in columns:
                 if column not in required_features:
                     required_features.append(column)
 
     X = df[required_features].copy()
 
-    # Распределяем признаки по типам обработки.
     for feature, processing_type in active_features.items():
-
         if processing_type == "numeric":
             numeric_features.append(feature)
-
         elif processing_type == "binary":
             binary_features.append(feature)
-
         elif processing_type == "onehot":
             onehot_features.append(feature)
-
         else:
-            raise ValueError(
-                f"Unknown processing type: {processing_type}"
-            )
-
-    # Feature engineering
+            raise ValueError(f"Unknown processing type: {processing_type}")
 
     if config.get("family_size", False):
         X["FamilySize"] = X["SibSp"] + X["Parch"] + 1
@@ -117,9 +106,7 @@ def prepare_features(
         selected_features.append("FamilySize")
 
     if config.get("is_alone", False):
-        X["IsAlone"] = (
-            X["SibSp"] + X["Parch"] == 0
-        ).astype(int)
+        X["IsAlone"] = (X["SibSp"] + X["Parch"] == 0).astype(int)
 
         numeric_features.append("IsAlone")
         selected_features.append("IsAlone")
@@ -147,25 +134,18 @@ def prepare_features(
         selected_features.append("AgeSquared")
 
     if config.get("sex_pclass", False):
-        X["SexPclass"] = (
-            X["Sex"].astype(str)
-            + "_"
-            + X["Pclass"].astype(str)
-        )
+        X["SexPclass"] = X["Sex"].astype(str) + "_" + X["Pclass"].astype(str)
 
         onehot_features.append("SexPclass")
         selected_features.append("SexPclass")
 
-    # Оставляем только те колонки,
-    # которые действительно пойдут в модель.
-    X = X[selected_features]
-
     return (
-        X,
+        X[selected_features],
         numeric_features,
         binary_features,
         onehot_features,
     )
+
 
 def build_preprocessor(
     numeric_features: list[str],
@@ -173,49 +153,21 @@ def build_preprocessor(
     onehot_features: list[str],
     config: ExperimentConfig | None = None,
 ) -> ColumnTransformer:
-    """Собирает imputer, scaler и encoder для переданных списков колонок."""
+    """Возвращает необученный ColumnTransformer для переданных списков колонок.
+
+    Числа: медиана и необязательный StandardScaler; категории: one-hot, неизвестные
+    значения игнорируются. config управляет масштабированием, fit вызывается позже.
+    """
 
     if config is None:
         config = base_config
 
-    numeric_steps = [
-        (
-            "imputer",
-            SimpleImputer(strategy="median"),
-        )
-    ]
-
+    numeric_steps = [("imputer", SimpleImputer(strategy="median"))]
     if config.get("scale_numeric", True):
-        numeric_steps.append(
-            (
-                "scaler",
-                StandardScaler(),
-            )
-        )
-
-    numeric_pipeline = Pipeline(
-        steps=numeric_steps
-    )
+        numeric_steps.append(("scaler", StandardScaler()))
 
     return ColumnTransformer([
-        (
-            "numeric",
-            numeric_pipeline,
-            numeric_features,
-        ),
-        (
-            "binary",
-            OneHotEncoder(
-                drop="if_binary",
-                handle_unknown="ignore",
-            ),
-            binary_features,
-        ),
-        (
-            "onehot",
-            OneHotEncoder(
-                handle_unknown="ignore",
-            ),
-            onehot_features,
-        ),
+        ("numeric", Pipeline(numeric_steps), numeric_features),
+        ("binary", OneHotEncoder(drop="if_binary", handle_unknown="ignore"), binary_features),
+        ("onehot", OneHotEncoder(handle_unknown="ignore"), onehot_features),
     ])
